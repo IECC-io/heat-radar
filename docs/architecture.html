@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat-Radar | Nowcast Architecture</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d0d1a;
+            color: white;
+            min-height: 100vh;
+            padding: 3rem 2rem;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        h1 span { color: #ff9800; }
+
+        .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+            font-size: 0.9rem;
+            margin-bottom: 3rem;
+        }
+
+        .pipeline {
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        /* Central vertical line */
+        .pipeline::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, #ff9800, #c44200, #9c27b0, #2196f3);
+            transform: translateX(-50%);
+            opacity: 0.3;
+        }
+
+        .stage {
+            position: relative;
+            margin-bottom: 2rem;
+        }
+
+        /* Arrow connector between stages */
+        .arrow {
+            text-align: center;
+            margin: 1rem 0;
+            color: rgba(255,255,255,0.3);
+            font-size: 1.5rem;
+        }
+
+        /* Stage 1: Full width */
+        .stage-box {
+            border-radius: 16px;
+            padding: 1.8rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stage-box::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            opacity: 0.08;
+            border-radius: 16px;
+        }
+
+        .stage-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .stage-num {
+            display: inline-flex;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .stage-box h2 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .stage-box p {
+            font-size: 0.85rem;
+            opacity: 0.7;
+            line-height: 1.6;
+        }
+
+        .io-pills {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .pill-in {
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.7);
+        }
+
+        .pill-out {
+            color: white;
+        }
+
+        /* Data source */
+        .s-data {
+            background: rgba(100,181,246,0.12);
+            border: 1px solid rgba(100,181,246,0.25);
+        }
+        .s-data .stage-num { background: #1565c0; }
+        .s-data h2 { color: #90caf9; }
+        .s-data .pill-out { background: rgba(100,181,246,0.3); }
+
+        /* Stochastic */
+        .s-stochastic {
+            background: rgba(255,152,0,0.12);
+            border: 1px solid rgba(255,152,0,0.25);
+        }
+        .s-stochastic .stage-num { background: #e65100; }
+        .s-stochastic h2 { color: #ffb74d; }
+        .s-stochastic .pill-out { background: rgba(255,152,0,0.3); }
+
+        /* Split section */
+        .split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        /* Autoencoder */
+        .s-autoencoder {
+            background: rgba(76,175,80,0.12);
+            border: 1px solid rgba(76,175,80,0.25);
+        }
+        .s-autoencoder .stage-num { background: #2e7d32; }
+        .s-autoencoder h2 { color: #81c784; }
+        .s-autoencoder .pill-out { background: rgba(76,175,80,0.3); }
+
+        /* EHI */
+        .s-ehi {
+            background: rgba(156,39,176,0.12);
+            border: 1px solid rgba(156,39,176,0.25);
+        }
+        .s-ehi .stage-num { background: #7b1fa2; }
+        .s-ehi h2 { color: #ce93d8; }
+        .s-ehi .pill-out { background: rgba(156,39,176,0.3); }
+
+        .physics-badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: rgba(156,39,176,0.3);
+            color: #ce93d8;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+
+        /* Merge indicator */
+        .merge {
+            text-align: center;
+            padding: 1rem 0;
+            position: relative;
+        }
+
+        .merge-label {
+            display: inline-block;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 20px;
+            padding: 0.4rem 1.2rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* GRU */
+        .s-gru {
+            background: rgba(244,67,54,0.12);
+            border: 1px solid rgba(244,67,54,0.25);
+        }
+        .s-gru .stage-num { background: #c62828; }
+        .s-gru h2 { color: #ef9a9a; }
+        .s-gru .pill-out { background: rgba(244,67,54,0.3); }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.6rem;
+            margin-top: 1rem;
+        }
+
+        .feature-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            font-size: 0.78rem;
+        }
+
+        .feature-item .src {
+            font-size: 0.65rem;
+            opacity: 0.5;
+            margin-top: 0.2rem;
+        }
+
+        /* Output */
+        .s-output {
+            background: linear-gradient(135deg, rgba(255,152,0,0.15), rgba(244,67,54,0.15));
+            border: 1px solid rgba(255,152,0,0.3);
+        }
+        .s-output h2 { color: #ffb74d; }
+        .s-output .stage-num { background: linear-gradient(135deg, #e65100, #c62828); }
+
+        .alert-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        .alert-card {
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            text-align: center;
+        }
+
+        .alert-card .threshold {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .alert-card .label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.2rem;
+        }
+
+        .alert-red {
+            background: rgba(244,67,54,0.2);
+            border: 1px solid rgba(244,67,54,0.4);
+        }
+        .alert-red .threshold { color: #f44336; }
+        .alert-red .label { color: #ef9a9a; }
+
+        .alert-orange {
+            background: rgba(255,152,0,0.2);
+            border: 1px solid rgba(255,152,0,0.4);
+        }
+        .alert-orange .threshold { color: #ff9800; }
+        .alert-orange .label { color: #ffb74d; }
+
+        .alert-yellow {
+            background: rgba(255,235,59,0.15);
+            border: 1px solid rgba(255,235,59,0.3);
+        }
+        .alert-yellow .threshold { color: #ffeb3b; }
+        .alert-yellow .label { color: #fff176; }
+
+        /* Legend */
+        .legend {
+            max-width: 1000px;
+            margin: 3rem auto 0;
+            padding: 1.5rem 2rem;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .legend h3 {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.5);
+            margin-bottom: 1rem;
+        }
+
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.8rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.8rem;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .legend-item span { opacity: 0.7; }
+
+        @media (max-width: 700px) {
+            .split { grid-template-columns: 1fr; }
+            .alert-grid { grid-template-columns: 1fr; }
+            .feature-grid { grid-template-columns: 1fr; }
+            body { padding: 2rem 1rem; }
+        }
+
+        @media print {
+            body { background: white; color: #1a1a2e; padding: 1rem; }
+            .stage-box { border-width: 2px; }
+            .arrow { color: #999; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Heat-Radar <span>Nowcast</span> Architecture</h1>
+    <p class="subtitle">Short-term extreme heat event prediction pipeline</p>
+
+    <div class="pipeline">
+
+        <!-- Stage 0: Data -->
+        <div class="stage">
+            <div class="stage-box s-data">
+                <div class="stage-label">
+                    <span class="stage-num">0</span> Input Data
+                </div>
+                <h2>ERA5 Reanalysis</h2>
+                <p>Hourly 2m temperature (T2m) and 2m dewpoint temperature (Td2m) for Kolkata, India. 20 years: 2005–2024.</p>
+                <div class="io-pills">
+                    <span class="pill pill-out">T2m (hourly)</span>
+                    <span class="pill pill-out">Td2m (hourly)</span>
+                    <span class="pill pill-out">RH (derived)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow">&#9660;</div>
+
+        <!-- Stage 1: Stochastic Decomposition -->
+        <div class="stage">
+            <div class="stage-box s-stochastic">
+                <div class="stage-label">
+                    <span class="stage-num">1</span> Preprocessing
+                </div>
+                <h2>Stochastic Variability Decomposition</h2>
+                <p>LOWESS smoothing extracts the mean diurnal cycle for each variable. Residuals capture day-to-day weather variability — the signal that matters for extreme event detection.</p>
+                <div class="io-pills">
+                    <span class="pill pill-in">T2m, RH (hourly)</span>
+                    <span class="pill pill-out">T residual (hourly)</span>
+                    <span class="pill pill-out">RH residual (hourly)</span>
+                    <span class="pill pill-out">Mean diurnal cycle</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow">&#9660;</div>
+
+        <!-- Stage 2+3: Split -->
+        <div class="stage">
+            <div class="split">
+                <!-- Autoencoder -->
+                <div class="stage-box s-autoencoder">
+                    <div class="stage-label">
+                        <span class="stage-num">2</span> Unsupervised
+                    </div>
+                    <h2>Autoencoder</h2>
+                    <p>Trained on all data to learn "normal" residual patterns. High reconstruction error = anomalous weather.</p>
+                    <div style="margin: 1rem 0; text-align: center; font-size: 0.8rem; opacity: 0.6; font-family: monospace;">
+                        [T_res, RH_res] → Encoder → <span style="color: #81c784; font-weight: 700;">z</span> → Decoder → [T̂, R̂H]
+                    </div>
+                    <div class="io-pills">
+                        <span class="pill pill-in">Residual window (24–48h)</span>
+                        <span class="pill pill-out">Latent features (z)</span>
+                        <span class="pill pill-out">Anomaly score</span>
+                    </div>
+                </div>
+
+                <!-- EHI-N* -->
+                <div class="stage-box s-ehi">
+                    <div class="stage-label">
+                        <span class="stage-num">3</span> Physics Model
+                        <span class="physics-badge">No Training</span>
+                    </div>
+                    <h2>EHI-N* Zone Classification</h2>
+                    <p>Analytical heat balance equations. Maps (T, RH, MET, sun) → physiological zone. This is the ground truth for "what matters."</p>
+                    <div style="margin: 1rem 0; text-align: center; font-size: 0.75rem; opacity: 0.6;">
+                        Zone 1–3: Safe &nbsp;|&nbsp; Zone 4: Sweating &nbsp;|&nbsp; <span style="color: #f44336; font-weight: 700;">Zone 5–6: Danger</span>
+                    </div>
+                    <div class="io-pills">
+                        <span class="pill pill-in">T, RH + MET + sun flag</span>
+                        <span class="pill pill-out">Zone (1–6) per hour</span>
+                        <span class="pill pill-out">EHI-N* temperature</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="merge">
+            <span class="merge-label">&#8595; &nbsp; Feature concatenation &nbsp; &#8595;</span>
+        </div>
+
+        <!-- Stage 4: GRU -->
+        <div class="stage">
+            <div class="stage-box s-gru">
+                <div class="stage-label">
+                    <span class="stage-num">4</span> Supervised Sequential Model
+                </div>
+                <h2>GRU Forecaster</h2>
+                <p>Takes a 100-hour lookback window of all features. Learns temporal patterns that precede extreme heat events. Outputs probability of Zone 5+ in the next N hours.</p>
+
+                <div class="feature-grid">
+                    <div class="feature-item">
+                        T_residual, RH_residual
+                        <div class="src">from Stage 1</div>
+                    </div>
+                    <div class="feature-item">
+                        Anomaly score + latent z
+                        <div class="src">from Stage 2 (Autoencoder)</div>
+                    </div>
+                    <div class="feature-item">
+                        Current EHI-N* zone
+                        <div class="src">from Stage 3 (Physics)</div>
+                    </div>
+                    <div class="feature-item">
+                        Hour of day, day of year
+                        <div class="src">Temporal encoding</div>
+                    </div>
+                    <div class="feature-item">
+                        Solar flag (day/night)
+                        <div class="src">Sunrise/sunset calculation</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.2rem; text-align: center; font-size: 0.8rem; opacity: 0.5; font-family: monospace;">
+                    [100h × features] → GRU layers → Dense → Sigmoid → P(Zone ≥ 5)
+                </div>
+            </div>
+        </div>
+
+        <div class="arrow">&#9660;</div>
+
+        <!-- Stage 5: Output -->
+        <div class="stage">
+            <div class="stage-box s-output">
+                <div class="stage-label">
+                    <span class="stage-num">5</span> Forecast Output
+                </div>
+                <h2>Extreme Heat Alerts</h2>
+                <p>Per hour, per MET level: probability of physiologically dangerous conditions (Zone 5+) in the next 6h, 12h, 24h, and 48h.</p>
+
+                <div class="alert-grid">
+                    <div class="alert-card alert-red">
+                        <div class="threshold">P &gt; 70%</div>
+                        <div class="label">Red Warning</div>
+                    </div>
+                    <div class="alert-card alert-orange">
+                        <div class="threshold">P &gt; 40%</div>
+                        <div class="label">Orange Alert</div>
+                    </div>
+                    <div class="alert-card alert-yellow">
+                        <div class="threshold">P &gt; 20%</div>
+                        <div class="label">Yellow Caution</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+        <h3>Training Regimes</h3>
+        <div class="legend-grid">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #ffb74d;"></div>
+                <span><strong>Stage 1</strong> — No training (statistical)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #81c784;"></div>
+                <span><strong>Stage 2</strong> — Unsupervised (all data)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #ce93d8;"></div>
+                <span><strong>Stage 3</strong> — No training (physics equations)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #ef9a9a;"></div>
+                <span><strong>Stage 4</strong> — Supervised (labeled extremes)</span>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
