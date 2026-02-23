@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat-Radar | Nowcast</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #1a1a2e;
+            background: #fafafa;
+        }
+
+        nav {
+            background: #1a0a00;
+            padding: 0.8rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        nav a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        nav a:hover { color: white; }
+
+        nav .brand {
+            color: #ff9800;
+            font-size: 1rem;
+            font-weight: 700;
+            margin-right: auto;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #1a0a00 0%, #8b2500 40%, #c44200 70%, #e65100 100%);
+            color: white;
+            padding: 4rem 2rem 3rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(circle at 30% 50%, rgba(255,152,0,0.2) 0%, transparent 50%),
+                radial-gradient(circle at 70% 50%, rgba(255,87,34,0.15) 0%, transparent 50%);
+        }
+
+        .hero-content {
+            position: relative;
+            max-width: 650px;
+            margin: 0 auto;
+        }
+
+        .hero h1 {
+            font-size: 2.6rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .hero h1 span { color: #ff9800; }
+
+        .hero .subtitle {
+            font-size: 1.05rem;
+            opacity: 0.85;
+            margin-bottom: 1.5rem;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255,152,0,0.2);
+            border: 1px solid rgba(255,152,0,0.4);
+            color: #ffb74d;
+            padding: 0.35rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        section {
+            padding: 3rem 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        section h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #8b2500;
+            margin-bottom: 1.5rem;
+        }
+
+        .pipeline {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .pipeline-step {
+            flex: 1;
+            min-width: 160px;
+            background: white;
+            border-radius: 10px;
+            padding: 1.2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+        .pipeline-step .step-num {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #c44200, #ff9800);
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-align: center;
+            line-height: 28px;
+            margin-bottom: 0.6rem;
+        }
+
+        .pipeline-step h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin-bottom: 0.3rem;
+        }
+
+        .pipeline-step p {
+            font-size: 0.8rem;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .details {
+            background: #fff5ee;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.2rem;
+        }
+
+        .detail-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem 1.2rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }
+
+        .detail-card .label {
+            font-size: 0.75rem;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+
+        .detail-card .value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        .status-section {
+            text-align: center;
+        }
+
+        .status-grid {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            background: white;
+            border-radius: 10px;
+            padding: 1rem 1.5rem;
+            min-width: 150px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 0.4rem;
+            vertical-align: middle;
+        }
+
+        .dot-done { background: #4caf50; }
+        .dot-wip { background: #ff9800; }
+        .dot-todo { background: #ccc; }
+
+        .status-item .label {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .status-item .text {
+            font-size: 0.78rem;
+            color: #888;
+            margin-top: 0.2rem;
+        }
+
+        footer {
+            background: #1a0a00;
+            padding: 1.2rem 2rem;
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+            font-size: 0.82rem;
+        }
+
+        footer a { color: rgba(255,255,255,0.7); text-decoration: none; }
+        footer a:hover { color: white; }
+
+        @media (max-width: 600px) {
+            .hero h1 { font-size: 2rem; }
+            .pipeline { flex-direction: column; }
+            .detail-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <a href="../" class="brand">Heat-Radar</a>
+        <a href="./">Nowcast</a>
+        <a href="../longterm/">Longterm</a>
+    </nav>
+
+    <div class="hero">
+        <div class="hero-content">
+            <div class="badge">In Development</div>
+            <h1>Now<span>cast</span></h1>
+            <p class="subtitle">Short-term extreme heat event prediction using ERA5 reanalysis and deep learning.</p>
+            <p style="font-size: 0.9rem; opacity: 0.65; max-width: 500px; margin: 0 auto;">Forecasting dangerous heat conditions 1–7 days ahead for vulnerable urban populations, with physiological severity classification.</p>
+        </div>
+    </div>
+
+    <section>
+        <h2>Pipeline</h2>
+        <div class="pipeline">
+            <div class="pipeline-step">
+                <div class="step-num">1</div>
+                <h3>ERA5 Data</h3>
+                <p>Hourly temperature and dewpoint for target city (20 years)</p>
+            </div>
+            <div class="pipeline-step">
+                <div class="step-num">2</div>
+                <h3>Decomposition</h3>
+                <p>LOWESS smoothing to extract mean diurnal cycle + stochastic residuals</p>
+            </div>
+            <div class="pipeline-step">
+                <div class="step-num">3</div>
+                <h3>Autoencoder</h3>
+                <p>Anomaly detection on residual patterns to flag unusual weather</p>
+            </div>
+            <div class="pipeline-step">
+                <div class="step-num">4</div>
+                <h3>GRU</h3>
+                <p>Sequential prediction of extreme event probability from 100-hour lookback</p>
+            </div>
+            <div class="pipeline-step">
+                <div class="step-num">5</div>
+                <h3>EHI-N*</h3>
+                <p>Physiological severity — zone classification by metabolic rate and sun</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="details" style="background: #fff5ee; max-width: 100%; padding: 3rem 2rem;">
+        <div style="max-width: 900px; margin: 0 auto;">
+            <h2>Configuration</h2>
+            <div class="detail-grid">
+                <div class="detail-card">
+                    <div class="label">Target City</div>
+                    <div class="value">Kolkata, India</div>
+                </div>
+                <div class="detail-card">
+                    <div class="label">Data Source</div>
+                    <div class="value">ERA5 Reanalysis (hourly)</div>
+                </div>
+                <div class="detail-card">
+                    <div class="label">Training Period</div>
+                    <div class="value">2005–2014 (10 years)</div>
+                </div>
+                <div class="detail-card">
+                    <div class="label">Validation Period</div>
+                    <div class="value">2015–2024 (10 years)</div>
+                </div>
+                <div class="detail-card">
+                    <div class="label">Focus Month</div>
+                    <div class="value">May (peak pre-monsoon heat)</div>
+                </div>
+                <div class="detail-card">
+                    <div class="label">Lookback Window</div>
+                    <div class="value">100 hours</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="status-section">
+        <h2>Status</h2>
+        <div class="status-grid">
+            <div class="status-item">
+                <span class="status-dot dot-done"></span>
+                <span class="label">ERA5 Data</span>
+                <div class="text">20 years downloaded</div>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-done"></span>
+                <span class="label">Stochastic Analysis</span>
+                <div class="text">LOWESS + residuals</div>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-wip"></span>
+                <span class="label">GRU Model</span>
+                <div class="text">Training in progress</div>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-wip"></span>
+                <span class="label">Autoencoder</span>
+                <div class="text">Architecture built</div>
+            </div>
+            <div class="status-item">
+                <span class="status-dot dot-todo"></span>
+                <span class="label">Solar Switching</span>
+                <div class="text">Sunrise/sunset logic</div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Heat-Radar &middot; IECC &middot; UC Berkeley</p>
+    </footer>
+
+</body>
+</html>
