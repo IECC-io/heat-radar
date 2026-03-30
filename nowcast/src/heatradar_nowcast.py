@@ -201,6 +201,7 @@ class Config:
     output_dir: str = "./output"  # Where models, plots, CSVs get saved
     lookup_table_dir: str = "./lookup_tables"  # Pre-computed EHI lookup tables
     run_name: str = ""            # Optional label (e.g. "elif", "simone") — appended to output path
+    forecast_file: str = ""       # Path to saved forecast JSON for --mode verify
 
     # WHY MARCH–JULY?
     #   These are the months when Kolkata experiences extreme heat events:
@@ -453,7 +454,7 @@ def parse_args() -> Config:
     )
     parser.add_argument(
         "--mode",
-        choices=["forecast", "classifier", "autoencoder", "full", "inference"],
+        choices=["forecast", "classifier", "autoencoder", "full", "inference", "verify"],
         default="forecast",
         help="Pipeline mode (default: forecast)",
     )
@@ -480,6 +481,7 @@ def parse_args() -> Config:
     parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--run_name", default="", help="Label for this run (e.g. 'elif', 'simone') — appended to output path")
+    parser.add_argument("--forecast_file", default="", help="Path to saved forecast JSON for --mode verify")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning rate"
@@ -506,6 +508,7 @@ def parse_args() -> Config:
         learning_rate=args.lr,
         classifier_lead_time=args.lead_time,
         run_name=args.run_name,
+        forecast_file=args.forecast_file,
     )
 
 
@@ -2912,12 +2915,14 @@ def run_inference(config: Config):
             f"Max Zone={alert['max_zone']}"
         )
 
-    # Save forecast
+    # Save forecast — filename includes date so multiple forecasts don't overwrite
     os.makedirs(config.output_dir, exist_ok=True)
-    forecast_path = os.path.join(config.output_dir, "latest_forecast.json")
+    date_str = pd.Timestamp.now().strftime("%Y%m%d")
+    forecast_path = os.path.join(config.output_dir, f"forecast_{date_str}.json")
     forecast_data = {
         "generated_at": str(pd.Timestamp.now()),
         "forecast_from": str(last_time),
+        "forecast_until": str(last_time + pd.Timedelta(hours=config.forecast_horizon)),
         "met_level": config.met_level,
         "location": {"lat": config.kolkata_lat, "lon": config.kolkata_lon},
         "alerts": alerts,
@@ -2926,8 +2931,163 @@ def run_inference(config: Config):
     with open(forecast_path, "w") as f:
         json.dump(forecast_data, f, indent=2, default=str)
     print(f"\n  Saved forecast: {forecast_path}")
+    print(f"  To verify after 7 days run:")
+    print(f"    python heatradar_nowcast.py --mode verify --forecast_file {forecast_path} --run_name {config.run_name or 'elif'}")
 
     return zone_forecast, alerts
+
+
+def run_verify(config: Config):
+    """
+    Verification mode — compare a saved forecast against what actually happened.
+
+    Run this ~7 days after --mode inference. Fetches actual weather from
+    Open-Meteo for the forecast period and computes zone accuracy,
+    extreme event hit rate, and bias.
+
+    Usage:
+      python heatradar_nowcast.py --mode verify \\
+          --forecast_file output/met4/elif/forecast_20250401.json \\
+          --run_name elif
+    """
+    print("=" * 70)
+    print("HeatRadar — Forecast Verification")
+    print("=" * 70)
+
+    forecast_file = getattr(config, "forecast_file", None)
+    if not forecast_file or not os.path.exists(forecast_file):
+        # Fall back to most recent forecast in output_dir
+        import glob
+        files = sorted(glob.glob(os.path.join(config.output_dir, "forecast_*.json")))
+        if not files:
+            raise FileNotFoundError(
+                f"No forecast files found in {config.output_dir}. "
+                "Run --mode inference first."
+            )
+        forecast_file = files[-1]
+        print(f"  No --forecast_file given, using most recent: {forecast_file}")
+
+    with open(forecast_file) as f:
+        saved = json.load(f)
+
+    forecast_from = pd.Timestamp(saved["forecast_from"])
+    forecast_until = pd.Timestamp(saved["forecast_until"])
+    met_level = saved["met_level"]
+    lat = saved["location"]["lat"]
+    lon = saved["location"]["lon"]
+    hours = int((forecast_until - forecast_from).total_seconds() / 3600)
+
+    print(f"  Forecast generated: {saved['generated_at']}")
+    print(f"  Forecast period:    {forecast_from} → {forecast_until} ({hours}h)")
+    print(f"  MET level:          {met_level}")
+
+    # Fetch actual weather for the forecast period from Open-Meteo
+    # Open-Meteo allows fetching past data with past_days parameter
+    print("\n  Fetching actual weather from Open-Meteo...")
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    hours_ago = int((now - forecast_from).total_seconds() / 3600)
+    if hours_ago < hours:
+        print(f"  WARNING: Only {hours_ago}h have passed since forecast start — "
+              f"verification will be partial ({hours_ago}/{hours}h)")
+
+    fetch_hours = min(hours_ago, hours)
+    df_actual = fetch_openmeteo_recent(lat, lon, hours=max(fetch_hours, 1))
+
+    # Trim to forecast window
+    df_actual = df_actual[
+        (df_actual.index >= forecast_from) &
+        (df_actual.index < forecast_until)
+    ]
+
+    if len(df_actual) == 0:
+        raise ValueError(
+            "No actual data in the forecast window yet. "
+            "Wait until the forecast period has passed before verifying."
+        )
+
+    print(f"  Actual data retrieved: {len(df_actual)} hours")
+
+    # Compute actual EHI zones
+    df_actual["Ta_K"] = df_actual["Ta_C"] + 273.15
+    df_actual = compute_solar_features(df_actual, config)
+    ssrd_vals = df_actual["SSRD"].fillna(0).values
+    alt_proxy = np.where(df_actual["sun_flag"].values, 45.0, 0.0)
+    Qs_arr = ssrd_to_Qs(ssrd_vals, alt_proxy)
+    Ta_K = df_actual["Ta_K"].values
+    RH = df_actual["RH"].values
+    actual_zones = compute_zones_array(Ta_K, RH, config.Qm, config.body_height_m,
+                                       config.body_mass_kg, Qs=Qs_arr)
+    df_actual["actual_zone"] = actual_zones
+    df_actual["actual_extreme"] = (df_actual["Ta_C"] - df_actual["Ta_C"].mean() >
+                                   df_actual["Ta_C"].std() * 1.5).astype(int)
+
+    # Build predicted DataFrame from saved forecast
+    hourly = pd.DataFrame(saved["hourly"])
+    if "datetime" in hourly.columns:
+        hourly["datetime"] = pd.to_datetime(hourly["datetime"])
+        hourly = hourly.set_index("datetime")
+
+    # Align on timestamps
+    common_idx = df_actual.index.intersection(hourly.index)
+    n = len(common_idx)
+    if n == 0:
+        raise ValueError("Predicted and actual timestamps don't overlap — check timezone.")
+
+    pred_zones = hourly.loc[common_idx, "zone"].values if "zone" in hourly.columns else np.zeros(n)
+    true_zones = df_actual.loc[common_idx, "actual_zone"].values
+
+    # Metrics
+    zone_acc = np.mean(pred_zones == true_zones)
+    zone_mae = np.mean(np.abs(pred_zones.astype(float) - true_zones.astype(float)))
+    pred_extreme = (pred_zones >= 5).astype(int)
+    true_extreme = (true_zones >= 5).astype(int)
+
+    n_true_extreme = true_extreme.sum()
+    hit_rate = (pred_extreme & true_extreme).sum() / max(n_true_extreme, 1)
+    false_alarm = (pred_extreme & ~true_extreme.astype(bool)).sum() / max(pred_extreme.sum(), 1)
+
+    print(f"\n--- Verification Results ({n} hours) ---")
+    print(f"  Zone accuracy (exact match): {zone_acc:.1%}")
+    print(f"  Zone MAE:                    {zone_mae:.2f} zones")
+    print(f"  Extreme events (Zone≥5) in actuals: {n_true_extreme}")
+    print(f"  Hit rate  (caught / actual extreme): {hit_rate:.1%}")
+    print(f"  False alarm rate:                    {false_alarm:.1%}")
+
+    # Save verification report
+    os.makedirs(config.output_dir, exist_ok=True)
+    forecast_date = os.path.basename(forecast_file).replace("forecast_", "").replace(".json", "")
+    report_path = os.path.join(config.output_dir, f"verification_{forecast_date}.json")
+    report = {
+        "forecast_file": forecast_file,
+        "verified_at": str(pd.Timestamp.now()),
+        "hours_verified": n,
+        "zone_accuracy": round(zone_acc, 4),
+        "zone_mae": round(zone_mae, 4),
+        "n_actual_extreme": int(n_true_extreme),
+        "hit_rate": round(hit_rate, 4),
+        "false_alarm_rate": round(false_alarm, 4),
+    }
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"\n  Saved verification report: {report_path}")
+
+    # Plot predicted vs actual zones
+    fig, ax = plt.subplots(figsize=(14, 4))
+    ax.plot(common_idx, true_zones, label="Actual zone", color="#e53935", linewidth=1.5)
+    ax.plot(common_idx, pred_zones, label="Predicted zone", color="#1e88e5",
+            linewidth=1.2, linestyle="--")
+    ax.set_ylabel("EHI-N* Zone")
+    ax.set_title(f"Forecast vs Actual — MET {met_level} — {forecast_date}")
+    ax.legend()
+    ax.set_ylim(0.5, 6.5)
+    ax.set_yticks(range(1, 7))
+    plt.tight_layout()
+    plot_path = os.path.join(config.output_dir, f"verification_{forecast_date}.png")
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    print(f"  Saved plot: {plot_path}")
+
+    return report
 
 
 # =============================================================================
@@ -3532,6 +3692,8 @@ if __name__ == "__main__":
         run_autoencoder_pipeline(config)
     elif config.mode == "full":
         run_full_pipeline(config)
+    elif config.mode == "verify":
+        run_verify(config)
     else:
         print(f"Unknown mode: {config.mode}")
         sys.exit(1)
