@@ -67,6 +67,11 @@ To regenerate them (requires `heatindex_ek.py`):
 python shared/ehi/generate_lookup_tables.py
 ```
 
+## Contributors
+
+- **Elif Kilic** — EHI-N* physiological engine, lookup table pipeline, nowcast architecture
+- **Simone Robson** — GRU model development and architecture (Kolkata notebooks)
+
 ## License
 
 See [LICENSE](LICENSE) for details.
