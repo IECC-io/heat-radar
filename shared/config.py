@@ -2,8 +2,7 @@
 Heat-Radar shared configuration.
 
 Central source of truth for body parameters, MET levels,
-zone definitions, and physical constants used across
-both nowcast and longterm pipelines.
+zone definitions, and physical constants.
 """
 
 # === Indian adult body parameters ===
@@ -16,14 +15,13 @@ CPC = 3492.0             # J/kg/K, specific heat capacity of body
 SIGMA = 5.67e-8          # W/m²/K⁴, Stefan-Boltzmann constant
 
 # === MET levels ===
-# MET × 58.15 = W/m²
 MET_LEVELS = {
-    1: {'watts': 58,  'label': 'Resting'},
-    2: {'watts': 116, 'label': 'Light Activity'},
-    3: {'watts': 174, 'label': 'Moderate Work'},
-    4: {'watts': 233, 'label': 'Heavy Work'},
-    5: {'watts': 291, 'label': 'Very Heavy Work'},
-    6: {'watts': 349, 'label': 'Extreme Labor'},
+    1: {'watts': 65,  'label': 'Resting'},
+    2: {'watts': 130, 'label': 'Light Activity'},
+    3: {'watts': 200, 'label': 'Moderate Work'},
+    4: {'watts': 240, 'label': 'Heavy Work (default)'},
+    5: {'watts': 290, 'label': 'Very Heavy Work'},
+    6: {'watts': 400, 'label': 'Extreme Labor'},
 }
 
 # === EHI-N* Zone definitions ===
@@ -35,12 +33,6 @@ ZONES = {
     5: {'name': 'Max Sweating',   'color': '#f44336', 'region': 'Rs*'},
     6: {'name': 'Hyperdanger',    'color': '#9c27b0', 'region': 'dTcdt'},
 }
-
-# === Geographic bounds (India) ===
-INDIA_LAT_MIN = 6.0
-INDIA_LAT_MAX = 38.0
-INDIA_LON_MIN = 66.0
-INDIA_LON_MAX = 100.0
 
 # === Kolkata (nowcast default) ===
 KOLKATA_LAT = 22.5726

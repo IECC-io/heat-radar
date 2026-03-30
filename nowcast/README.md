@@ -4,12 +4,20 @@ Short-term extreme heat event prediction using ERA5 reanalysis, stochastic varia
 
 ## Pipeline
 
-1. **Data**: ERA5 hourly T2m, Td2m for target city (default: Kolkata)
+1. **Data**: ERA5 hourly T2m, Td2m, SSRD for Kolkata (2005–present)
 2. **Stochastic Decomposition**: LOWESS smoothing → mean diurnal cycle + residuals
-3. **Anomaly Detection**: Autoencoder on residual patterns
-4. **Sequential Prediction**: GRU on residual sequences → extreme event probability
-5. **Severity**: EHI-N* zone classification (from `shared/ehi/`)
+3. **EHI-N* Features**: Physiological heat stress zones via lookup tables (no Numba required)
+4. **Anomaly Detection**: Autoencoder on residual patterns
+5. **Classification**: GRU on residual sequences → extreme event probability (48h ahead)
 
-## Status
+## Usage
 
-Pipeline is under active development. See project slides for current progress.
+```bash
+python nowcast/src/heatradar_nowcast.py \
+    --data_dir nowcast/data \
+    --lookup_table_dir shared/ehi/lookup_tables \
+    --met_level 4 \
+    --mode classifier
+```
+
+See `python nowcast/src/heatradar_nowcast.py --help` for all options.
