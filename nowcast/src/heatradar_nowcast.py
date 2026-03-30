@@ -202,6 +202,7 @@ class Config:
     lookup_table_dir: str = "./lookup_tables"  # Pre-computed EHI lookup tables
     run_name: str = ""            # Optional label (e.g. "elif", "simone") — appended to output path
     forecast_file: str = ""       # Path to saved forecast JSON for --mode verify
+    push: bool = False            # Auto-commit results/ to GitHub (for Colab use)
 
     # WHY MARCH–JULY?
     #   These are the months when Kolkata experiences extreme heat events:
@@ -482,6 +483,7 @@ def parse_args() -> Config:
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--run_name", default="", help="Label for this run (e.g. 'elif', 'simone') — appended to output path")
     parser.add_argument("--forecast_file", default="", help="Path to saved forecast JSON for --mode verify")
+    parser.add_argument("--push", action="store_true", help="Auto-commit results/ to GitHub (set GIT_USER, GIT_TOKEN, GIT_EMAIL env vars)")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning rate"
@@ -509,6 +511,7 @@ def parse_args() -> Config:
         classifier_lead_time=args.lead_time,
         run_name=args.run_name,
         forecast_file=args.forecast_file,
+        push=args.push,
     )
 
 
@@ -2078,6 +2081,24 @@ def save_model_artifacts(model, scaler: MinMaxScaler, config: Config,
         json.dump(metrics, f, indent=2)
     print(f"  Saved metrics: {metrics_path}")
 
+    # Also copy lightweight artifacts to tracked results/ folder
+    # (model weights stay in gitignored output/, only metrics + plots go to results/)
+    import shutil
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    results_dir = os.path.join(
+        repo_root, "results",
+        f"met{config.met_level}",
+        config.run_name or "default"
+    )
+    os.makedirs(results_dir, exist_ok=True)
+    shutil.copy2(metrics_path, os.path.join(results_dir, "metrics.json"))
+    shutil.copy2(config_path, os.path.join(results_dir, "config.json"))
+    for png in ["confusion_matrix.png", "roc_pr_curves.png", "classifier_training_history.png"]:
+        src = os.path.join(config.output_dir, png)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(results_dir, png))
+    print(f"  Saved results snapshot: {results_dir}/")
+
 
 def load_model_artifacts(output_dir: str, prefix: str = "classifier"):
     """Load model, scaler, and config for inference."""
@@ -3347,6 +3368,69 @@ def run_forecast_pipeline(config: Config):
     return model, metrics
 
 
+def push_results(config: Config):
+    """
+    Push results/ folder to GitHub.
+
+    Intended for Colab use. Set these environment variables before calling:
+      GIT_USER   — your GitHub username (e.g. "simonerobson")
+      GIT_TOKEN  — a GitHub personal access token with repo write access
+      GIT_EMAIL  — your email (optional, defaults to {run_name}@github.com)
+
+    The script commits all files in results/met{N}/{run_name}/ and pushes.
+    Model weights in output/ are never committed (gitignored).
+    """
+    import subprocess
+
+    git_user  = os.environ.get("GIT_USER", "")
+    git_token = os.environ.get("GIT_TOKEN", "")
+    git_email = os.environ.get("GIT_EMAIL", f"{config.run_name or 'user'}@users.noreply.github.com")
+
+    def _run(cmd, **kw):
+        result = subprocess.run(cmd, capture_output=True, text=True, **kw)
+        if result.returncode != 0:
+            print(f"  git warning: {result.stderr.strip()}")
+        return result
+
+    # Configure git identity
+    _run(["git", "config", "user.name", git_user or (config.run_name or "heatradar-bot")])
+    _run(["git", "config", "user.email", git_email])
+
+    # Inject token into remote URL so push works without interactive auth
+    if git_token:
+        result = _run(["git", "remote", "get-url", "origin"])
+        remote_url = result.stdout.strip()
+        if "github.com" in remote_url and "@" not in remote_url:
+            # https://github.com/... → https://user:token@github.com/...
+            auth_url = remote_url.replace(
+                "https://github.com",
+                f"https://{git_user}:{git_token}@github.com"
+            )
+            _run(["git", "remote", "set-url", "origin", auth_url])
+
+    # Stage results/ folder
+    results_pattern = os.path.join(
+        "results", f"met{config.met_level}", config.run_name or "default"
+    )
+    _run(["git", "add", results_pattern])
+
+    # Check if anything staged
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        capture_output=True, text=True
+    ).stdout.strip()
+
+    if not staged:
+        print("  push_results: nothing to commit (results/ already up to date)")
+        return
+
+    date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
+    commit_msg = f"Results MET{config.met_level} {config.run_name} — {date_str}"
+    _run(["git", "commit", "-m", commit_msg])
+    _run(["git", "push"])
+    print(f"  Pushed results to GitHub: {results_pattern}/")
+
+
 def run_classifier_pipeline(config: Config):
     """
     GRU classifier pipeline — binary extreme heat prediction.
@@ -3432,6 +3516,10 @@ def run_classifier_pipeline(config: Config):
     print(f"  F1:      {metrics['f1_at_optimal']:.4f}")
     print(f"  Output:  {config.output_dir}/")
     print("=" * 70)
+
+    if config.push:
+        print("\n--- Pushing results to GitHub ---")
+        push_results(config)
 
     return model, scaler, metrics
 

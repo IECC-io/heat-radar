@@ -10,6 +10,11 @@ output/
 *.pt
 *.pth
 
+# Keep results/ JSON and PNG (tracked for comparison)
+!results/
+!results/**/*.json
+!results/**/*.png
+
 # Python
 __pycache__/
 *.py[cod]
