@@ -1,0 +1,97 @@
+name: Weekly Forecast & Verification
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC (11:30 IST)
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub UI for testing
+
+jobs:
+  forecast-and-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit forecast JSONs back to repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download trained models from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download model artifacts from the latest GitHub release
+          # After training locally, upload output/met*/elif/ folders as a release asset:
+          #   gh release create models-v1 output/met*/elif/*.keras output/met*/elif/*.pkl output/met*/elif/config.json
+          RELEASE_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "No release found — skipping inference (models not uploaded yet)"
+            echo "MODELS_AVAILABLE=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          echo "Downloading models from release: $RELEASE_TAG"
+          mkdir -p models
+          gh release download "$RELEASE_TAG" --dir models --pattern "*.keras" || true
+          gh release download "$RELEASE_TAG" --dir models --pattern "*.pkl"   || true
+          gh release download "$RELEASE_TAG" --dir models --pattern "config_met*.json" || true
+          echo "MODELS_AVAILABLE=true" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+
+      - name: Run weekly inference (all 6 MET levels)
+        if: env.MODELS_AVAILABLE == 'true'
+        run: |
+          DATE=$(date +%Y%m%d)
+          for m in 1 2 3 4 5 6; do
+            echo "=== Inference MET $m ==="
+            python nowcast/src/heatradar_nowcast.py \
+              --data_dir nowcast/data \
+              --lookup_dir shared/ehi/lookup_tables \
+              --mode inference \
+              --met_level $m \
+              --output_dir models/met${m} \
+              --run_name elif || echo "MET $m inference failed"
+          done
+
+      - name: Run verification against last week's forecasts (all 6 MET levels)
+        if: env.MODELS_AVAILABLE == 'true'
+        run: |
+          LAST_WEEK=$(date -d "7 days ago" +%Y%m%d)
+          for m in 1 2 3 4 5 6; do
+            FORECAST="models/met${m}/elif/forecast_${LAST_WEEK}.json"
+            if [ -f "$FORECAST" ]; then
+              echo "=== Verifying MET $m forecast from $LAST_WEEK ==="
+              python nowcast/src/heatradar_nowcast.py \
+                --mode verify \
+                --met_level $m \
+                --output_dir models/met${m} \
+                --run_name elif \
+                --forecast_file "$FORECAST" || echo "MET $m verify failed"
+            else
+              echo "No forecast for MET $m from $LAST_WEEK — skipping"
+            fi
+          done
+
+      - name: Commit forecast JSONs and verification reports
+        if: env.MODELS_AVAILABLE == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Only commit JSON/PNG results, not model weights
+          git add nowcast/forecasts/ || true
+          git add models/met*/elif/forecast_*.json || true
+          git add models/met*/elif/verification_*.json || true
+          git add models/met*/elif/verification_*.png || true
+          git diff --cached --quiet || git commit -m "Weekly forecast & verification $(date +%Y-%m-%d)"
+          git push
