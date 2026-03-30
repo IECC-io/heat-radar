@@ -38,14 +38,16 @@ pip install -r requirements.txt
 python nowcast/src/heatradar_nowcast.py \
     --data_dir nowcast/data \
     --lookup_table_dir shared/ehi/lookup_tables \
-    --mode classifier
+    --mode classifier \
+    --run_name yourname
 
 # Run for all MET levels
 for m in 1 2 3 4 5 6; do
   python nowcast/src/heatradar_nowcast.py \
       --data_dir nowcast/data \
       --lookup_table_dir shared/ehi/lookup_tables \
-      --met_level $m --mode classifier
+      --met_level $m --mode classifier \
+      --run_name yourname
 done
 ```
 

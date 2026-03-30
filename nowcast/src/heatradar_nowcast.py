@@ -200,6 +200,7 @@ class Config:
     data_dir: str = "./data"      # Where ERA5 NetCDF files live
     output_dir: str = "./output"  # Where models, plots, CSVs get saved
     lookup_table_dir: str = "./lookup_tables"  # Pre-computed EHI lookup tables
+    run_name: str = ""            # Optional label (e.g. "elif", "simone") — appended to output path
 
     # WHY MARCH–JULY?
     #   These are the months when Kolkata experiences extreme heat events:
@@ -478,6 +479,7 @@ def parse_args() -> Config:
     )
     parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--run_name", default="", help="Label for this run (e.g. 'elif', 'simone') — appended to output path")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument(
         "--lr", type=float, default=0.001, help="Learning rate"
@@ -503,6 +505,7 @@ def parse_args() -> Config:
         batch_size=args.batch_size,
         learning_rate=args.lr,
         classifier_lead_time=args.lead_time,
+        run_name=args.run_name,
     )
 
 
@@ -3479,11 +3482,12 @@ def run_full_pipeline(config: Config):
 if __name__ == "__main__":
     config = parse_args()
 
-    # ---- NAMESPACE OUTPUT BY MET LEVEL ----
-    # Ensures runs for different MET levels don't overwrite each other.
-    # ./output → ./output/met4  (or met3, met5, etc.)
+    # ---- NAMESPACE OUTPUT BY MET LEVEL + RUN NAME ----
+    # ./output → ./output/met4/elif  (or ./output/met4/simone, etc.)
     if not os.path.basename(config.output_dir).startswith("met"):
         config.output_dir = os.path.join(config.output_dir, f"met{config.met_level}")
+    if config.run_name:
+        config.output_dir = os.path.join(config.output_dir, config.run_name)
 
     # ---- REPRODUCIBILITY: Set ALL random seeds ----
     # Neural networks use random numbers everywhere: weight initialization,
