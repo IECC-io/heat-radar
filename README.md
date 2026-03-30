@@ -37,7 +37,7 @@ pip install -r requirements.txt
 # Run the classifier pipeline (MET 4 = outdoor labor, default)
 python nowcast/src/heatradar_nowcast.py \
     --data_dir nowcast/data \
-    --lookup_table_dir shared/ehi/lookup_tables \
+    --lookup_dir shared/ehi/lookup_tables \
     --mode classifier \
     --run_name yourname
 
@@ -45,7 +45,7 @@ python nowcast/src/heatradar_nowcast.py \
 for m in 1 2 3 4 5 6; do
   python nowcast/src/heatradar_nowcast.py \
       --data_dir nowcast/data \
-      --lookup_table_dir shared/ehi/lookup_tables \
+      --lookup_dir shared/ehi/lookup_tables \
       --met_level $m --mode classifier \
       --run_name yourname
 done
