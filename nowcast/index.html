@@ -222,6 +222,85 @@
             margin-top: 0.2rem;
         }
 
+        /* Results comparison table */
+        .results-section { background: #f5f5f5; max-width: 100%; padding: 3rem 2rem; }
+        .results-section > div { max-width: 900px; margin: 0 auto; }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .runner-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .runner-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #1a1a2e;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #ff9800;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.85rem;
+        }
+
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: #666; }
+        .metric-value { font-weight: 600; color: #1a1a2e; }
+        .metric-value.good { color: #4caf50; }
+        .metric-value.warn { color: #ff9800; }
+        .metric-value.bad  { color: #f44336; }
+
+        .met-tabs {
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .met-tab {
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1.5px solid #ddd;
+            background: white;
+            color: #666;
+            transition: all 0.15s;
+        }
+
+        .met-tab.active {
+            background: #c44200;
+            border-color: #c44200;
+            color: white;
+        }
+
+        .no-results {
+            text-align: center;
+            color: #aaa;
+            font-size: 0.9rem;
+            padding: 2rem;
+        }
+
+        @media (max-width: 600px) {
+            .compare-grid { grid-template-columns: 1fr; }
+        }
+
         footer {
             background: #1a0a00;
             padding: 1.2rem 2rem;
@@ -350,9 +429,107 @@
         </div>
     </section>
 
+    <!-- Results Comparison -->
+    <section class="results-section">
+        <div>
+            <h2>Results — Elif vs Simone</h2>
+
+            <div class="met-tabs" id="metTabs">
+                <button class="met-tab active" onclick="loadMET(1)">MET 1</button>
+                <button class="met-tab" onclick="loadMET(2)">MET 2</button>
+                <button class="met-tab" onclick="loadMET(3)">MET 3</button>
+                <button class="met-tab" onclick="loadMET(4)">MET 4</button>
+                <button class="met-tab" onclick="loadMET(5)">MET 5</button>
+                <button class="met-tab" onclick="loadMET(6)">MET 6</button>
+            </div>
+
+            <div class="compare-grid" id="compareGrid">
+                <div class="no-results" id="noResults" style="grid-column:1/-1">
+                    Results will appear here once training is complete and metrics are committed.
+                </div>
+            </div>
+        </div>
+    </section>
+
     <footer>
         <p>Heat-Radar &middot; IECC &middot; UC Berkeley</p>
     </footer>
+
+<script>
+    const RUNNERS = [
+        { name: "Elif Kilic",    key: "elif" },
+        { name: "Simone Robson", key: "simone" },
+    ];
+
+    const METRICS = [
+        { key: "roc_auc",        label: "ROC-AUC",   fmt: v => v.toFixed(4), color: v => v > 0.85 ? "good" : v > 0.75 ? "warn" : "bad" },
+        { key: "recall",         label: "Recall",    fmt: v => (v*100).toFixed(1)+"%", color: v => v > 0.6 ? "good" : v > 0.4 ? "warn" : "bad" },
+        { key: "precision",      label: "Precision", fmt: v => (v*100).toFixed(1)+"%", color: v => v > 0.4 ? "good" : v > 0.2 ? "warn" : "bad" },
+        { key: "f1_at_optimal",  label: "F1 (opt.)", fmt: v => v.toFixed(4), color: v => v > 0.5 ? "good" : v > 0.35 ? "warn" : "bad" },
+        { key: "optimal_threshold", label: "Threshold", fmt: v => v.toFixed(3), color: _ => "" },
+    ];
+
+    let currentMET = 1;
+
+    async function loadMET(met) {
+        currentMET = met;
+
+        // Update tab styles
+        document.querySelectorAll(".met-tab").forEach((t, i) => {
+            t.classList.toggle("active", i + 1 === met);
+        });
+
+        const grid = document.getElementById("compareGrid");
+        const noResults = document.getElementById("noResults");
+
+        // Fetch both metrics files
+        const results = await Promise.all(RUNNERS.map(async r => {
+            const path = `../output/met${met}/${r.key}/metrics.json`;
+            try {
+                const res = await fetch(path);
+                if (!res.ok) return { runner: r, data: null };
+                return { runner: r, data: await res.json() };
+            } catch {
+                return { runner: r, data: null };
+            }
+        }));
+
+        const anyData = results.some(r => r.data !== null);
+
+        if (!anyData) {
+            grid.innerHTML = `<div class="no-results" style="grid-column:1/-1">
+                No results yet for MET ${met} — run training first.
+            </div>`;
+            return;
+        }
+
+        grid.innerHTML = results.map(({ runner, data }) => {
+            if (!data) return `
+                <div class="runner-card">
+                    <h3>${runner.name}</h3>
+                    <div class="no-results">Not yet available</div>
+                </div>`;
+
+            const rows = METRICS.map(m => {
+                const val = data[m.key];
+                if (val === undefined || val === null) return "";
+                const cls = m.color(val);
+                return `<div class="metric-row">
+                    <span class="metric-label">${m.label}</span>
+                    <span class="metric-value ${cls}">${m.fmt(val)}</span>
+                </div>`;
+            }).join("");
+
+            return `<div class="runner-card">
+                <h3>${runner.name}</h3>
+                ${rows}
+            </div>`;
+        }).join("");
+    }
+
+    // Load MET 4 by default on page open
+    loadMET(4);
+</script>
 
 </body>
 </html>
