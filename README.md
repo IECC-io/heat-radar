@@ -34,9 +34,6 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Download ERA5 data for Kolkata
-python nowcast/src/download_ssrd.py --output_dir nowcast/data
-
 # Run the classifier pipeline (MET 4 = outdoor labor, default)
 python nowcast/src/heatradar_nowcast.py \
     --data_dir nowcast/data \
@@ -54,8 +51,8 @@ done
 
 ## ERA5 Data
 
-Raw ERA5 NetCDF files are not tracked in this repository (Copernicus license).
-Download them using `nowcast/src/download_ssrd.py`, which pulls from the public
+ERA5 hourly data for Kolkata (2005–2024, March–July) is included in `nowcast/data/`.
+To download additional years or cities, use `nowcast/src/download_ssrd.py`, which pulls from the public
 [ARCO-ERA5](https://cloud.google.com/storage/docs/public-datasets/era5) dataset on Google Cloud.
 
 ## EHI Lookup Tables
